@@ -1,3 +1,4 @@
+from __future__ import division
 import torch
 from torchvision import transforms
 import numpy as np
@@ -207,7 +208,7 @@ class CropAndResize:
         if cropped_size[0] != cropped_size[1]:
             # new shape to preserve aspect ratio
             ratio = min(self.out_size[0]/cropped_size[0], self.out_size[1]/cropped_size[1])
-            im = sample['image'].resize((round(ratio*cropped_size[0]), round(ratio*cropped_size[1])))
+            im = sample['image'].resize((int(round(ratio*cropped_size[0])), int(round(ratio*cropped_size[1]))))
             # zero pad
             # want to preserve center loc, so ...
             offset_x = int(self.out_size[0]//2 - round((center[0] - min_x)*ratio))
