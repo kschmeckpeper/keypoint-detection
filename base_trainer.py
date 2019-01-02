@@ -27,6 +27,8 @@ class BaseTrainer:
         else:
             self.epoch_count = self.checkpoint['epoch']
             self.step_count = self.checkpoint['total_step_count']
+        # self.lr_schedulers = {k: torch.optim.lr_scheduler.ReduceLROnPlateau(v, patience=5)
+                                # for k,v in self.optimizers_dict.items()}
         self.lr_schedulers = {k: torch.optim.lr_scheduler.ExponentialLR(v, gamma=self.options.lr_decay, last_epoch=self.epoch_count-1)\
                               for k,v in self.optimizers_dict.items()}
         for opt in self.optimizers_dict:
@@ -35,6 +37,7 @@ class BaseTrainer:
     def _init_fn(self):
         raise NotImplementedError('You need to provide an _init_fn method')
 
+    # @profile
     def train(self):
         self.endtime = time.time() + self.options.time_to_run
         for epoch in tqdm(range(self.epoch_count, self.options.num_epochs), total=self.options.num_epochs, initial=self.epoch_count):
@@ -48,10 +51,9 @@ class BaseTrainer:
                                               total=math.ceil(len(self.train_ds)/self.options.batch_size),
                                               initial=train_data_loader.checkpoint_batch_idx),
                                          train_data_loader.checkpoint_batch_idx):
-#                if step == 99:
                 #if epoch == 1: #step == 74 or step == 73:
-#                    from IPython.core.debugger import Pdb
-#                    Pdb().set_trace()
+                    #from IPython.core.debugger import Pdb
+                    #Pdb().set_trace()
                 #    print("Epoch", epoch, "Step", step)
                 #    print(batch['keypoint_locs'])
 
@@ -64,8 +66,7 @@ class BaseTrainer:
                     if self.step_count % self.options.summary_steps == 0:
                         try:
                             self._train_summaries(batch, *out)
-                        except Exception as e:
-                            print(e)
+                        except:
                             from IPython.core.debugger import Pdb
                             Pdb().set_trace()
 
@@ -74,7 +75,9 @@ class BaseTrainer:
                         tqdm.write('Checkpoint saved')
 
                     if self.step_count % self.options.test_steps == 0:
-                        self.test()
+                        val_loss = self.test()
+                        # for opt in self.optimizers_dict:
+                        #     self.lr_schedulers[opt].step(val_loss)
                 else:
                     tqdm.write('Timeout reached')
                     self.saver.save_checkpoint(self.models_dict, self.optimizers_dict, epoch, step, self.options.batch_size, train_data_loader.sampler.dataset_perm, self.step_count) 
@@ -94,7 +97,8 @@ class BaseTrainer:
         return
 
     def _get_lr(self):
-        return next(iter(self.lr_schedulers.values())).get_lr()[0]
+        return next(iter(self.optimizers_dict.values())).param_groups[0]['lr']
+        # return next(iter(self.lr_schedulers.values())).get_lr()[0]
 
     def _train_step(self, input_batch):
         raise NotImplementedError('You need to provide a _train_step method')
