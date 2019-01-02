@@ -63,6 +63,7 @@ class TrainOptions(BaseTrainOptions):
         arch_unet.add_argument('--mask_only', dest='mask_only', default=False, action='store_true', help='Number of blocks') 
 
         train = self.parser.add_argument_group('Training Options')
+        train.add_argument('--num_keypoints', type=int, default=102, help='Number of distinct keypoint classes')
         train.add_argument('--num_epochs', type=int, default=100, help='Total number of training epochs')
         train.add_argument('--batch_size', type=int, default=6, help='Batch size')
         train.add_argument('--test_batch_size', type=int, default=8, help='Batch size')
