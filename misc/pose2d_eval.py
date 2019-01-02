@@ -10,36 +10,20 @@ class Pose2DEval:
         self.dist_thresh = dist_thresh
 
     def heatmaps_to_locs(self, heatmaps):
-        num_images = heatmaps.shape[0]
-        num_keypoints = heatmaps.shape[1]
-        keypoint_locs = torch.zeros((num_images, num_keypoints,2))
-        for i in range(num_images):
-            for j in range(num_keypoints):
-                ind = heatmaps[i,j,:,:].argmax().item()
-                row, col = np.unravel_index(ind, heatmaps[i,j,:,:].shape)
-                val = torch.from_numpy(np.array([col, row] if heatmaps[i,j,row,col].item() > self.detection_thresh else [0,0]))
-                keypoint_locs[i,j,:] = val
-        return keypoint_locs
+        vals, uv = torch.max(heatmaps.view(heatmaps.shape[0], 
+                                        heatmaps.shape[1], 
+                                        heatmaps.shape[2]*heatmaps.shape[3]), 2)
+        # zero out entries below the detection threshold
+        uv *= (vals > self.detection_thresh).type(torch.long) 
+        rows = uv / heatmaps.shape[3]
+        cols = uv % heatmaps.shape[3]
+        return torch.stack([cols, rows], 2).cpu().type(torch.float)
 
     def pck(self, gt_heatmaps, pred_heatmaps):
         gt_locs = self.heatmaps_to_locs(gt_heatmaps)
         pred_locs = self.heatmaps_to_locs(pred_heatmaps)
         visible_keypoints = (gt_locs[:,:,0] > 0)
-        #print "len", len(visible_keypoints), visible_keypoints.shape
-        #print "sub", (gt_locs - pred_locs)
-        #print "sum", torch.sum((gt_locs - pred_locs) ** 2, dim=-1)
-      #  print "sqrt", torch.sqrt(torch.sum((gt_locs - pred_locs) ** 2, dim=-1))
-        visible_dists = torch.sqrt(torch.sum((gt_locs - pred_locs) ** 2, dim=-1))[visible_keypoints]
-       # print "vis", torch.sqrt(torch.sum((gt_locs - pred_locs) ** 2, dim=-1))[visible_keypoints]
-       # print "vis_shape", len(visible_dists), visible_dists.shape
-       # print "less", (torch.sqrt(torch.sum((gt_locs - pred_locs) ** 2, dim=-1))[visible_keypoints] < self.dist_thresh)
-       # print "float", (torch.sqrt(torch.sum((gt_locs - pred_locs) ** 2, dim=-1))[visible_keypoints] < self.dist_thresh).type(torch.float)
-       # print "mean", torch.mean((torch.sqrt(torch.sum((gt_locs - pred_locs) ** 2, dim=-1))[visible_keypoints] < self.dist_thresh).type(torch.float))
-       # print "\n\n\n"
-        if len(visible_dists) > 0:
-            return 100 * torch.mean((torch.sqrt(torch.sum((gt_locs - pred_locs) ** 2, dim=-1))[visible_keypoints] < self.dist_thresh).type(torch.float))
-        else:
-            return 0
+        return 100 * torch.mean((torch.sqrt(torch.sum((gt_locs - pred_locs) ** 2, dim=-1))[visible_keypoints] < self.dist_thresh).type(torch.float))
 
     def draw_keypoints_with_labels(self, images, gt_heatmaps, pred_heatmaps):
         gt_images, pred_images  = images.clone(), images.clone()
