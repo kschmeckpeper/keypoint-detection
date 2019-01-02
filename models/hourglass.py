@@ -1,84 +1,122 @@
 import torch.nn as nn
+import torch
 import numpy as np
-from .layers import ConvBlock, ResBlock
+# from .layers import ConvBlock, ResBlock
+from .layers import Residual
 
-# Stacked Hourglass Module
-# Naming scheme and architecture is based on the Torch implementation in https://github.com/umich-vl/pose-hg-train
+class Hourglass(nn.Module):
+    def __init__(self, n, in_channels, out_channels):
+        super(Hourglass, self).__init__()
+        self.up1 = Residual(in_channels, 256)
+        self.up2 = Residual(256, 256)
+        self.up4 = Residual(256, out_channels)
+
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.low1 = Residual(in_channels, 256)
+        self.low2 = Residual(256, 256)
+        self.low5 = Residual(256, 256)
+        if n > 1:
+            self.low6 = Hourglass(n-1, 256, out_channels)
+        else:
+            self.low6 = Residual(256, out_channels)
+        self.low7 = Residual(out_channels, out_channels)
+        # self.up5 = nn.Upsample(scale_factor=2)
+
+    def forward(self, x):
+        up = self.up1(x)
+        up = self.up2(up)
+        up = self.up4(up)
+
+        low = self.pool(x)
+        low = self.low1(low)
+        low = self.low2(low)
+        low = self.low5(low)
+        low = self.low6(low)
+        low = self.low7(low)
+        # low = self.up5(low)
+        low = nn.functional.interpolate(low, scale_factor=2)
+
+        return up + low
+
+class Lin(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(Lin, self).__init__()
+        self.layer = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(True)
+        )
+
+    def forward(self, x):
+        return self.layer(x)
+
 class StackedHourglass(nn.Module):
-    
-    def __init__(self, in_channels=3, hg_channels=256, out_channels=15, num_hg=2, num_blocks=1):
+    def __init__(self, out_channels):
         super(StackedHourglass, self).__init__()
-        self.in_channels = in_channels
-        self.hg_channels = hg_channels
-        self.out_channels = out_channels
-        self.num_hg = num_hg
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3),
+            nn.BatchNorm2d(64),
+            nn.ReLU()
+        )
+        self.r1 = Residual(64, 128)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.r4 = Residual(128, 128)
+        self.r5 = Residual(128, 128)
+        self.r6 = Residual(128, 256)
 
-        self.pre_hg = nn.Sequential(
-                      ConvBlock(in_channels, 64, kernel_size=7, stride=2, padding=3),
-                      ResBlock(64,128),
-                      nn.MaxPool2d(kernel_size=2),
-                      ResBlock(128,128),
-                      ResBlock(128,hg_channels)
-                      )
-        self.stacked_hg = nn.ModuleList([Hourglass(num_channels=hg_channels, pred_channels=hg_channels, num_blocks=num_blocks, n=4) for _ in range(num_hg)])
-        self.resblock_out = nn.ModuleList([nn.Sequential(*[ResBlock(hg_channels, hg_channels) for _ in range(num_blocks)]) for _ in range(num_hg)])
-        self.lin_out1 = nn.ModuleList([ConvBlock(hg_channels, hg_channels, kernel_size=1) for _ in range(num_hg)])
-        self.lin_pred = nn.ModuleList([ConvBlock(hg_channels, out_channels, kernel_size=1, batchnorm=False, activation=None) for _ in range(num_hg)])
-        self.lin_out2 = nn.ModuleList([ConvBlock(hg_channels, hg_channels, kernel_size=1, batchnorm=False, activation=None) for _ in range(num_hg-1)])
-        self.lin_out3 = nn.ModuleList([ConvBlock(out_channels, hg_channels, kernel_size=1, batchnorm=False, activation=None) for _ in range(num_hg-1)])
-        return
+        self.hg1 = Hourglass(4, 256, 512)
+
+        self.l1 = Lin(512, 512)
+        self.l2 = Lin(512, 256)
+
+        self.out1 = nn.Conv2d(256, out_channels, kernel_size=1, stride=1, padding=0)
+
+        self.out_return = nn.Conv2d(out_channels, 256+128, kernel_size=1, stride=1, padding=0)
+
+        self.cat_conv = nn.Conv2d(256+128, 256+128, kernel_size=1, stride=1, padding=0)
+
+        self.hg2 = Hourglass(4, 256+128, 512)
+
+        self.l3 = Lin(512, 512)
+        self.l4 = Lin(512, 512)
+
+        self.out2 = nn.Conv2d(512, out_channels, 1, 1, padding=0)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.r1(x)
+        pooled = self.pool(x)
+        x = self.r4(pooled)
+        x = self.r5(x)
+        x = self.r6(x)
+
+        # First hourglass
+        x = self.hg1(x)
+
+        # Linear layers to produce first set of predictions
+        x = self.l1(x)
+        x = self.l2(x)
+
+        # First predicted heatmaps
+        out1 = self.out1(x)
+        out1_ = self.out_return(out1)
+
+        joined = torch.cat([x, pooled], 1)
+        joined = self.cat_conv(joined)
+        int1 = joined + out1_
+
+        hg2 = self.hg2(int1)
+
+        l3 = self.l3(hg2)
+        l4 = self.l4(l3)
+
+        out2 = self.out2(l4)
+
+        return out1, out2
+
 
     def num_trainable_parameters(self):
         trainable_parameters = filter(lambda p: p.requires_grad, self.parameters())
         return sum([np.prod(p.size()) for p in trainable_parameters])
 
-    def forward(self,x):
-        inter_out = []
-        inter = self.pre_hg(x)
-        
-        for i in range(self.num_hg):
-            ll = self.stacked_hg[i](inter)
-            ll = self.resblock_out[i](ll)
-            ll = self.lin_out1[i](ll)
-            tmp_out = self.lin_pred[i](ll)
-            inter_out.append(tmp_out)
-            if i < self.num_hg-1:
-                ll_ = self.lin_out2[i](ll)
-                tmp_out_ = self.lin_out3[i](tmp_out)
-                inter = inter + ll_ + tmp_out_
-        return inter_out
 
-# Hourglass Module
-# Naming scheme and architecture is based on the Torch implementation in https://github.com/umich-vl/pose-hg-train
-class Hourglass(nn.Module):
-
-    def __init__(self, num_channels=256, pred_channels=15, num_blocks=1, n=4):
-        super(Hourglass, self).__init__()
-        self.num_channels = num_channels
-        self.num_blocks = num_blocks
-        self.n = n
-
-        self.resblock_up1 = nn.Sequential(*[ResBlock(num_channels, num_channels) for _ in range(num_blocks)])
-        self.resblock_low1 = nn.Sequential(*[ResBlock(num_channels, num_channels) for _ in range(num_blocks)])
-        self.resblock_low3 = nn.Sequential(*[ResBlock(num_channels, num_channels) for _ in range(num_blocks)])
-        if self.n > 1:
-            self.hg_nm1 = Hourglass(num_channels=num_channels, pred_channels=pred_channels, num_blocks=num_blocks, n=n-1)
-        else:
-            self.resblock_low2 = nn.Sequential(*[ResBlock(num_channels, num_channels) for _ in range(num_blocks)])
-        self.maxpool = nn.MaxPool2d(kernel_size=2)
-        self.upsample = nn.Upsample(scale_factor=2, mode='nearest')
-        return
-    
-    def forward(self, x):
-        up1 = self.resblock_up1(x)
-        
-        low1 = self.resblock_low1(self.maxpool(x))
-
-        if self.n > 1:
-            low2 = self.hg_nm1(low1)
-        else:
-            low2 = self.resblock_low2(low1)
-
-        low3 = self.resblock_low3(low2)
-        up2 = self.upsample(low3)
-        return up1+up2
