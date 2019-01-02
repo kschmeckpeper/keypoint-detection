@@ -23,58 +23,38 @@ class RctaDataset(Dataset):
         self.keypoints = []
         self.bounding_boxes = []
         self.old_boxes = []
+        self.centers = []
+        self.scales =[]
 
+        print("Dataset has {} keypoints".format(len(keypoints)))
         for i in range(len(keypoints)):
             keypoints_with_visibility = np.zeros((keypoints[i].shape[0], 3))
             keypoints_with_visibility[:, :2] = keypoints[i]
             keypoints_with_visibility[np.where(keypoints_with_visibility[:, 0] > 0), 2] = 1
-
-                
             self.keypoints.append(keypoints_with_visibility)
 
-            if len(np.where(keypoints_with_visibility[:, 2] > 0)[0]) == 0:
-                min_x = 1
-                min_y = 1
-                
-                max_x = np.inf
-                max_y = np.inf
+            self.centers.append(centers[i])
+            self.scales.append(scales[i])
 
-            else:
-                #print keypoints_with_visibility[np.where(keypoints_with_visibility[:, 2] > 0), 0], len(np.where(keypoints_with_visibility[:, 2] > 0)[0])
-                min_x = np.min(keypoints_with_visibility[np.where(keypoints_with_visibility[:, 2] > 0), 0])
-                max_x = np.max(keypoints_with_visibility[np.where(keypoints_with_visibility[:, 2] > 0), 0]) 
+            # modification by sean
+            # reconstruct via center, scale instead of keypoints
+            upper_left = centers[i] - scales[i]
+            lower_right = centers[i] + scales[i]
 
-                min_y = np.min(keypoints_with_visibility[np.where(keypoints_with_visibility[:, 2] > 0), 1]) 
-                max_y = np.max(keypoints_with_visibility[np.where(keypoints_with_visibility[:, 2] > 0), 1])
+            box = np.zeros((4,2))
 
-            box = np.zeros((4, 2))
-            min_box_x = min(min_x-1, centers[i][0] - scales[i])
-            max_box_x = max(max_x+1, centers[i][0] + scales[i])
-            min_box_y = min(min_y-1, centers[i][1] - scales[i])
-            max_box_y = max(max_y+1, centers[i][1] + scales[i])
- #           if i == 153:
- #               print(min_x, centers[i][0] - scales[i], min_box_x)
- #               print(max_x, centers[i][0] + scales[i], max_box_x)
- #               print(min_y, centers[i][1] - scales[i], min_box_y)
- #               print(max_y, centers[i][1] + scales[i], max_box_y)
-            box[0, 0] = min_box_x
-            box[0, 1] = min_box_y
+            box[0,:] = upper_left
+            
+            box[1, 0] = lower_right[0]
+            box[1, 1] = upper_left[1]
 
-            box[1, 0] = max_box_x
-            box[1, 1] = min_box_y
+            box[2, 0] = upper_left[0]
+            box[2, 1] = lower_right[1]
 
-            box[2, 0] = min_box_x
-            box[2, 1] = max_box_y
-
-            box[3, 0] = max_box_x
-            box[3, 1] = max_box_y
+            box[3, :] = lower_right
             self.bounding_boxes.append(box)
             self.old_boxes.append(np.copy(box))
-
-
-#        if len(keypoints) > 74 * 6:
-#            print("Keypoints_old", keypoints[74*6])
-#            print("Keypoints_new", self.keypoints[74*6])
+            
         self.old_keypoints = keypoints
 
 
@@ -91,7 +71,6 @@ class RctaDataset(Dataset):
         image = Image.open(img_path).convert(mode='RGB')
         bounding_box = self.bounding_boxes[idx].copy()
         keypoints = self.keypoints[idx].copy()
-
         min_x, min_y = np.round(np.maximum(bounding_box.min(axis=0), np.array([0,0]))).astype(int)
         max_x, max_y = np.round(np.minimum(bounding_box.max(axis=0), np.array(image.size))).astype(int)
 
@@ -100,7 +79,7 @@ class RctaDataset(Dataset):
 #                continue
 #            if keypoints[i,0] < min_x or keypoints[i,0] > max_x or keypoints[i,1] < min_y or keypoints[i,1] > max_y:
 #                Pdb().set_trace()
-        sample = {'image': image, 'bb': bounding_box, 'keypoints': keypoints}
+        sample = {'image': image, 'bb': bounding_box, 'keypoints': keypoints, 'scale': self.scales[idx], 'center': self.centers[idx]}
         if self.transform is not None:
             sample = self.transform(sample)
         return sample
