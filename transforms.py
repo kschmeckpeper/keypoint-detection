@@ -1,3 +1,4 @@
+from __future__ import division
 import torch
 from torchvision import transforms
 import numpy as np
@@ -198,11 +199,30 @@ class CropAndResize:
     def __call__(self, sample):
         image, bb = sample['image'], sample['bb']
         img_size = image.size
+        center = sample['center']
         min_x, min_y = np.round(np.maximum(bb.min(axis=0), np.array([0,0]))).astype(int)
         max_x, max_y = np.round(np.minimum(bb.max(axis=0), np.array(img_size))).astype(int)
         sample['image'] = image.crop(box=(min_x,min_y,max_x,max_y))
         cropped_size = sample['image'].size
-        sample['image'] = sample['image'].resize(self.out_size)
+
+        if cropped_size[0] != cropped_size[1]:
+            # new shape to preserve aspect ratio
+            ratio = min(self.out_size[0]/cropped_size[0], self.out_size[1]/cropped_size[1])
+            im = sample['image'].resize((int(round(ratio*cropped_size[0])), int(round(ratio*cropped_size[1]))))
+            # zero pad
+            # want to preserve center loc, so ...
+            offset_x = int(self.out_size[0]//2 - round((center[0] - min_x)*ratio))
+            offset_y = int(self.out_size[1]//2 - round((center[1] - min_y)*ratio))
+            # corner_offset = ((self.out_size[0]-im.size[0])//2, (self.out_size[1]-im.size[1])//2)
+            new_im = Image.new('RGB', self.out_size, 0)
+            new_im.paste(im, (offset_x, offset_y))
+            sample['image'] = new_im
+        else:
+            ratio = self.out_size[0]/cropped_size[0]
+            offset_x = 0
+            offset_y = 0
+            sample['image'] = sample['image'].resize(self.out_size)
+
         if 'mask' in sample:
             sample['mask'] = sample['mask'].crop(box=(min_x,min_y,max_x,max_y)).resize(self.out_size)
         if 'keypoints' in sample:
@@ -213,8 +233,10 @@ class CropAndResize:
 #                        Pdb().set_trace()
                         keypoints[i,:] = [0,0,0]
                     else:
-                        keypoints[i,:2] = (keypoints[i,:2]-np.array([min_x, min_y]))*self.out_size/cropped_size
-        sample.pop('bb')
+                        keypoints[i,0] = (keypoints[i,0] - min_x)*ratio + offset_x
+                        keypoints[i,1] = (keypoints[i,1] - min_y)*ratio + offset_y
+                        # keypoints[i,:2] = (keypoints[i,:2]-np.array([min_x, min_y]))*self.out_size/cropped_size
+        # sample.pop('bb')
         return sample
 
 # Convert keypoint locations to heatmaps

@@ -19,13 +19,14 @@ from misc import Pose2DEval
 class KeypointTrainer(BaseTrainer):
 
     def _init_fn(self):
-        transform_list = [Select(['image', 'bb', 'keypoints'])]
-        transform_list.append(RandomRescaleBB(0.9, 1.4))
+        # transform_list = [Select(['image', 'bb', 'keypoints'])]
+        # transform_list.append(RandomRescaleBB(0.9, 1.4))
         # transform_list.append(RandomFlipLR())
+        transform_list = []
         transform_list.append(RandomBlur())
         transform_list.append(RandomGrayscale())
         transform_list.append(ColorJitter(brightness=self.options.jitter, contrast=self.options.jitter, saturation=self.options.jitter, hue=self.options.jitter/4))
-        transform_list.append(RandomRotation(degrees=self.options.degrees))
+        # transform_list.append(RandomRotation(degrees=self.options.degrees))
         transform_list.append(CropAndResize(out_size=(self.options.crop_size, self.options.crop_size)))
         transform_list.append(LocsToHeatmaps(out_size=(self.options.heatmap_size, self.options.heatmap_size)))
         transform_list.append(ToTensor())
@@ -38,15 +39,16 @@ class KeypointTrainer(BaseTrainer):
 
         self.train_ds = RctaDataset(root_dir=self.options.dataset_dir, is_train=True,
                                    transform = transforms.Compose(transform_list))
-        print("Keypoints in trainer:", self.train_ds.keypoints[74*6])
-        print("Bounding boxes:", self.train_ds.bounding_boxes[74*6])
+        # print("Keypoints in trainer:", self.train_ds.keypoints[74*6])
+        # print("Bounding boxes:", self.train_ds.bounding_boxes[74*6])
         self.test_ds = RctaDataset(root_dir=self.options.dataset_dir, is_train=False,
                                   transform = transforms.Compose(test_transform_list))
-        self.model = StackedHourglass(num_hg=self.options.num_hg, hg_channels=self.options.hg_channels, out_channels=102).to(self.device)
+        self.model = StackedHourglass(self.options.num_keypoints).to(self.device)
         print('Total number of model parameters:', self.model.num_trainable_parameters())
+
         # create optimizer
         # if self.options.optimizer == 'sgd':
-        #     self.optimizer = torch.optim.SGD(params=self.model.parameters(), lr=self.options.lr, momentum=self.options.sgd_momentum, weight_decay=self.options.wd)
+        #       self.optimizer = torch.optim.SGD(params=self.model.parameters(), lr=self.options.lr, momentum=self.options.sgd_momentum, weight_decay=self.options.wd)
         # elif self.options.optimizer == 'rmsprop':
         self.optimizer = torch.optim.RMSprop(params=self.model.parameters(), lr=self.options.lr, momentum=0, weight_decay=self.options.wd)
         # else:
@@ -62,7 +64,6 @@ class KeypointTrainer(BaseTrainer):
     def _train_step(self, input_batch):
         self.model.train()
         images = input_batch['image']
-        print "Image_shape:", images.shape
         gt_keypoints = input_batch['keypoint_heatmaps']
         pred_keypoints = self.model(images)
         loss = torch.tensor(0.0, device=self.device)
@@ -96,6 +97,7 @@ class KeypointTrainer(BaseTrainer):
         test_loss /= (tstep+1)
         mean_pck /= (tstep+1)
         self._save_summaries(batch, pred_keypoints, test_loss, mean_pck, self.step_count, is_train=False) 
+        return test_loss
 
     def _test_step(self, input_batch):
         self.model.eval()
