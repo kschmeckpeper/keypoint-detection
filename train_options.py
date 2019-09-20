@@ -35,7 +35,8 @@ class TrainOptions(BaseTrainOptions):
         io.add_argument('--from_json', default=None, help='Load options from json file instead of the command line')
 
         data_proc = self.parser.add_argument_group('Data Preprocessing')
-        data_proc.add_argument('--degrees', type=float, default=45, help='Random rotation angle in the range [-degrees, degrees]')
+        data_proc.add_argument('--degrees', type=float, default=0, help='Random rotation angle in the range [-degrees, degrees]')
+        data_proc.add_argument('--max_scale', type=float, default=1.0)
         data_proc.add_argument('--crop_size', type=int, default=256, help='Size of cropped image to feed to the network')
         fliplr = data_proc.add_mutually_exclusive_group()
         fliplr.add_argument('--flip_lr', dest='flip_lr', action='store_true', help='Flip training images')

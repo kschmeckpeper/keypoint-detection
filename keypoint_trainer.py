@@ -24,15 +24,21 @@ class KeypointTrainer(BaseTrainer):
         # transform_list.append(RandomFlipLR())
         transform_list = []
         transform_list.append(RandomBlur())
-        transform_list.append(RandomGrayscale())
+        #transform_list.append(RandomGrayscale())
         transform_list.append(ColorJitter(brightness=self.options.jitter, contrast=self.options.jitter, saturation=self.options.jitter, hue=self.options.jitter/4))
-        # transform_list.append(RandomRotation(degrees=self.options.degrees))
+        if self.options.degrees > 0:
+            transform_list.append(RandomRotation(degrees=self.options.degrees))
+        if self.options.max_scale > 1:
+            transform_list.append(RandomRescaleBB(1.0, self.options.max_scale))
         transform_list.append(CropAndResize(out_size=(self.options.crop_size, self.options.crop_size)))
         transform_list.append(LocsToHeatmaps(out_size=(self.options.heatmap_size, self.options.heatmap_size)))
         transform_list.append(ToTensor())
         transform_list.append(Normalize())
 
-        test_transform_list = [CropAndResize(out_size=(self.options.crop_size, self.options.crop_size))]
+        test_transform_list = []
+        if self.options.max_scale > 1:
+            test_transform_list.append(RandomRescaleBB(1.0, self.options.max_scale))
+        test_transform_list.append(CropAndResize(out_size=(self.options.crop_size, self.options.crop_size)))
         test_transform_list.append(LocsToHeatmaps(out_size=(self.options.heatmap_size, self.options.heatmap_size)))
         test_transform_list.append(ToTensor())
         test_transform_list.append(Normalize())
@@ -65,6 +71,8 @@ class KeypointTrainer(BaseTrainer):
         self.model.train()
         images = input_batch['image']
         gt_keypoints = input_batch['keypoint_heatmaps']
+        print("bbox:", input_batch['bb'])
+        print("shape:", images.shape)
         pred_keypoints = self.model(images)
         loss = torch.tensor(0.0, device=self.device)
         for i in range(len(pred_keypoints)):
