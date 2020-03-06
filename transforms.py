@@ -292,6 +292,15 @@ class ToTensor:
                 torch.from_numpy(sample['visible_keypoints'].astype(np.float32))
         return sample
 
+class ToPILImage:
+    def __init__(self):
+        self.to_pil = transforms.ToPILImage()
+
+    def __call__(self, sample):
+        sample['image'] = self.to_pil(sample['image'])
+
+        return sample
+
 class Normalize:
 
     def __call__(self, sample):

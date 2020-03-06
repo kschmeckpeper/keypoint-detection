@@ -9,11 +9,14 @@ class Pose2DEval:
         self.detection_thresh = detection_thresh
         self.dist_thresh = dist_thresh
 
-    def heatmaps_to_locs(self, heatmaps):
+    def heatmaps_to_locs(self, heatmaps, no_thresh=False):
         vals, uv = torch.max(heatmaps.view(heatmaps.shape[0], 
                                         heatmaps.shape[1], 
                                         heatmaps.shape[2]*heatmaps.shape[3]), 2)
         # zero out entries below the detection threshold
+        thresh = self.detection_thresh
+        if no_thresh:
+            self.detection_thresh = 0
         uv *= (vals > self.detection_thresh).type(torch.long) 
         rows = uv / heatmaps.shape[3]
         cols = uv % heatmaps.shape[3]
