@@ -60,6 +60,22 @@ class RctaDataset(Dataset):
 
         self.filenames = open(join(root_dir, "annot", file_type+'_images.txt'), 'r').read().split('\n')[:-1]
 
+        to_remove = []
+        for i in range(len(self.filenames)):
+            bb = self.bounding_boxes[i]
+            min_x, min_y = np.round(np.maximum(bb.min(axis=0), np.array([0,0]))).astype(int)
+            max_x, max_y = np.round(bb.max(axis=0)).astype(int)
+            if max_x - min_x < 5 or max_y - min_y < 5:
+                to_remove.append(i)
+        print("removing", to_remove)
+
+        for i in to_remove[::-1]:
+            del self.keypoints[i]
+            del self.centers[i]
+            del self.scales[i]
+            del self.bounding_boxes[i]
+            del self.old_boxes[i]
+            del self.filenames[i]
 
     def __len__(self):
         return len(self.filenames)
